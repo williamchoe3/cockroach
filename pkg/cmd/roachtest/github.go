@@ -21,6 +21,7 @@ import (
 	rperrors "github.com/cockroachdb/cockroach/pkg/roachprod/errors"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/logger"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm"
+	"github.com/cockroachdb/errors"
 )
 
 // GithubPoster interface allows MaybePost to be mocked in unit tests that test
@@ -327,6 +328,9 @@ func (g *githubIssues) MaybePost(
 	message string,
 	params map[string]string,
 ) (*issues.TestFailureIssue, error) {
+	if true {
+		return nil, errors.New("mocking")
+	}
 	skipReason := g.shouldPost(t)
 	if skipReason != "" {
 		l.Printf("skipping GitHub issue posting (%s)", skipReason)

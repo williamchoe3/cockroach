@@ -528,6 +528,9 @@ func (r *testRunner) allocateOrAttachToCluster(
 ) (*clusterImpl, *vm.CreateOpts, error) {
 	wStatus.SetStatus(fmt.Sprintf("creating cluster (arch=%q)", arch))
 	defer wStatus.SetStatus("")
+	if true {
+		return nil, nil, errors.New("mocking")
+	}
 
 	if clustersOpt.preAllocateClusterFn != nil {
 		if err := clustersOpt.preAllocateClusterFn(ctx, t, arch); err != nil {
