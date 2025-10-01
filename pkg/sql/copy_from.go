@@ -343,15 +343,9 @@ func newCopyMachine(
 	// to have field data then we have to populate the expectedHiddenColumnIdxs
 	// field with the columns indexes we expect to be hidden.
 	if c.p.SessionData().ExpectAndIgnoreNotVisibleColumnsInCopy && len(n.Columns) == 0 {
-		numInaccessibleCols := 0
 		for i, col := range tableDesc.PublicColumns() {
 			if col.IsHidden() {
-				// Offset the index by the number of preceding inaccessible
-				// columns, which are never expected in the input.
-				c.expectedHiddenColumnIdxs = append(c.expectedHiddenColumnIdxs, i-numInaccessibleCols)
-			}
-			if col.IsInaccessible() {
-				numInaccessibleCols++
+				c.expectedHiddenColumnIdxs = append(c.expectedHiddenColumnIdxs, i)
 			}
 		}
 	}

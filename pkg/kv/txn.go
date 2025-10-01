@@ -443,18 +443,9 @@ func (txn *Txn) debugNameLocked() string {
 	return fmt.Sprintf("%s (id: %s)", txn.mu.debugName, txn.mu.ID)
 }
 
-// SetBufferedWritesEnabled toggles whether the writes are buffered on the
-// gateway node until the commit time. Buffered writes cannot be enabled on a
-// txn that performed any requests. When disabling buffered writes, if there are
-// any writes in the buffer, they are flushed with the next BatchRequest.
-//
-// Only allowed on the RootTxn.
 func (txn *Txn) SetBufferedWritesEnabled(enabled bool) {
 	if txn.typ != RootTxn {
-		panic(errors.AssertionFailedf(
-			"SetBufferedWritesEnabled(%t) called on leaf txn (buffer empty? %t)",
-			enabled, txn.HasBufferedWrites(),
-		))
+		panic(errors.AssertionFailedf("SetBufferedWritesEnabled() called on leaf txn"))
 	}
 
 	txn.mu.Lock()
@@ -1869,14 +1860,6 @@ func (txn *Txn) HasPerformedWrites() bool {
 	txn.mu.Lock()
 	defer txn.mu.Unlock()
 	return txn.mu.sender.HasPerformedWrites()
-}
-
-// HasBufferedWrites returns true if a write has been buffered for the
-// transaction's current epoch.
-func (txn *Txn) HasBufferedWrites() bool {
-	txn.mu.Lock()
-	defer txn.mu.Unlock()
-	return txn.mu.sender.HasBufferedWrites()
 }
 
 // AdmissionHeader returns the admission header for work done in the context

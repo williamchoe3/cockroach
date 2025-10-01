@@ -1221,8 +1221,7 @@ func (c *CustomFuncs) FindLeftJoinCanaryColumn(
 	// Find any column from the right which is null-rejected by the ON condition.
 	// right rows where such a column is NULL will never contribute to the join
 	// result.
-	var nullRejectedCols opt.ColSet
-	memo.ExtractNullColsRejectedByFilter(c.e.ctx, c.e.evalCtx, on, &nullRejectedCols)
+	nullRejectedCols := memo.NullColsRejectedByFilter(c.e.ctx, c.e.evalCtx, on)
 	nullRejectedCols.IntersectionWith(right.Relational().OutputCols)
 
 	canaryCol, ok = nullRejectedCols.Next(0)

@@ -793,7 +793,7 @@ var CreateTableWithSchemaLocked = settings.RegisterBoolSetting(
 	"default value for create_table_with_schema_locked; "+
 		"default value for the create_table_with_schema_locked session setting; controls "+
 		"if new created tables will have schema_locked set",
-	true)
+	buildutil.CrdbTestBuild || buildutil.CrdbBenchBuild)
 
 // createTableWithSchemaLockedDefault override for the schema_locked
 var createTableWithSchemaLockedDefault = true
@@ -1016,44 +1016,28 @@ var (
 		Unit:        metric.Unit_COUNT,
 	}
 	MetaSelectStarted = metric.Metadata{
-		Name:         "sql.select.started.count",
-		Help:         "Number of SQL SELECT statements started",
-		Measurement:  "SQL Statements",
-		Unit:         metric.Unit_COUNT,
-		LabeledName:  "sql.started.count",
-		StaticLabels: metric.MakeLabelPairs(metric.LabelQueryType, "select"),
-		Category:     metric.Metadata_SQL,
-		HowToUse:     "This high-level metric reflects workload volume. Monitor this metric to identify abnormal application behavior or patterns over time. If abnormal patterns emerge, apply the metric's time range to the SQL Activity pages to investigate interesting outliers or patterns. For example, on the Transactions page and the Statements page, sort on the Execution Count column. To find problematic sessions, on the Sessions page, sort on the Transaction Count column. Find the sessions with high transaction counts and trace back to a user or application.",
+		Name:        "sql.select.started.count",
+		Help:        "Number of SQL SELECT statements started",
+		Measurement: "SQL Statements",
+		Unit:        metric.Unit_COUNT,
 	}
 	MetaUpdateStarted = metric.Metadata{
-		Name:         "sql.update.started.count",
-		Help:         "Number of SQL UPDATE statements started",
-		Measurement:  "SQL Statements",
-		Unit:         metric.Unit_COUNT,
-		LabeledName:  "sql.started.count",
-		StaticLabels: metric.MakeLabelPairs(metric.LabelQueryType, "update"),
-		Category:     metric.Metadata_SQL,
-		HowToUse:     "This high-level metric reflects workload volume. Monitor this metric to identify abnormal application behavior or patterns over time. If abnormal patterns emerge, apply the metric's time range to the SQL Activity pages to investigate interesting outliers or patterns. For example, on the Transactions page and the Statements page, sort on the Execution Count column. To find problematic sessions, on the Sessions page, sort on the Transaction Count column. Find the sessions with high transaction counts and trace back to a user or application.",
+		Name:        "sql.update.started.count",
+		Help:        "Number of SQL UPDATE statements started",
+		Measurement: "SQL Statements",
+		Unit:        metric.Unit_COUNT,
 	}
 	MetaInsertStarted = metric.Metadata{
-		Name:         "sql.insert.started.count",
-		Help:         "Number of SQL INSERT statements started",
-		Measurement:  "SQL Statements",
-		Unit:         metric.Unit_COUNT,
-		LabeledName:  "sql.started.count",
-		StaticLabels: metric.MakeLabelPairs(metric.LabelQueryType, "insert"),
-		Category:     metric.Metadata_SQL,
-		HowToUse:     "This high-level metric reflects workload volume. Monitor this metric to identify abnormal application behavior or patterns over time. If abnormal patterns emerge, apply the metric's time range to the SQL Activity pages to investigate interesting outliers or patterns. For example, on the Transactions page and the Statements page, sort on the Execution Count column. To find problematic sessions, on the Sessions page, sort on the Transaction Count column. Find the sessions with high transaction counts and trace back to a user or application.",
+		Name:        "sql.insert.started.count",
+		Help:        "Number of SQL INSERT statements started",
+		Measurement: "SQL Statements",
+		Unit:        metric.Unit_COUNT,
 	}
 	MetaDeleteStarted = metric.Metadata{
-		Name:         "sql.delete.started.count",
-		Help:         "Number of SQL DELETE statements started",
-		Measurement:  "SQL Statements",
-		Unit:         metric.Unit_COUNT,
-		LabeledName:  "sql.started.count",
-		StaticLabels: metric.MakeLabelPairs(metric.LabelQueryType, "delete"),
-		Category:     metric.Metadata_SQL,
-		HowToUse:     "This high-level metric reflects workload volume. Monitor this metric to identify abnormal application behavior or patterns over time. If abnormal patterns emerge, apply the metric's time range to the SQL Activity pages to investigate interesting outliers or patterns. For example, on the Transactions page and the Statements page, sort on the Execution Count column. To find problematic sessions, on the Sessions page, sort on the Transaction Count column. Find the sessions with high transaction counts and trace back to a user or application.",
+		Name:        "sql.delete.started.count",
+		Help:        "Number of SQL DELETE statements started",
+		Measurement: "SQL Statements",
+		Unit:        metric.Unit_COUNT,
 	}
 	MetaCRUDStarted = metric.Metadata{
 		Name:        "sql.crud_query.started.count",
@@ -2176,6 +2160,8 @@ type StreamingTestingKnobs struct {
 	// for whether the job record is updated on a progress update.
 	CutoverProgressShouldUpdate func() bool
 
+	//ExternalConnectionPollingInterval override the LDR alter
+	// connection polling frequency.
 	ExternalConnectionPollingInterval *time.Duration
 
 	DistSQLRetryPolicy *retry.Options
@@ -2234,8 +2220,12 @@ func shouldDistributeGivenRecAndMode(
 // remote node to the gateway.
 // TODO(yuzefovich): this will be easy to solve once the DistSQL spec factory is
 // completed but is quite annoying to do at the moment.
-func (p *planner) getPlanDistribution(
-	ctx context.Context, plan planMaybePhysical,
+func getPlanDistribution(
+	ctx context.Context,
+	txnHasUncommittedTypes bool,
+	sd *sessiondata.SessionData,
+	plan planMaybePhysical,
+	distSQLVisitor *distSQLExprCheckVisitor,
 ) (_ physicalplan.PlanDistribution, distSQLProhibitedErr error) {
 	if plan.isPhysicalPlan() {
 		// TODO(#47473): store the distSQLProhibitedErr for DistSQL spec factory
@@ -2246,11 +2236,10 @@ func (p *planner) getPlanDistribution(
 	// If this transaction has modified or created any types, it is not safe to
 	// distribute due to limitations around leasing descriptors modified in the
 	// current transaction.
-	if p.Descriptors().HasUncommittedDescriptors() {
+	if txnHasUncommittedTypes {
 		return physicalplan.LocalPlan, nil
 	}
 
-	sd := p.SessionData()
 	if sd.DistSQLMode == sessiondatapb.DistSQLOff {
 		return physicalplan.LocalPlan, nil
 	}
@@ -2260,20 +2249,7 @@ func (p *planner) getPlanDistribution(
 		return physicalplan.LocalPlan, nil
 	}
 
-	// Determine whether the txn has buffered some writes.
-	txnHasBufferedWrites := p.txn.HasBufferedWrites()
-	if sd.BufferedWritesEnabled && p.curPlan.main == plan {
-		// Given that we're checking the plan distribution for the main query
-		// _before_ executing any of the subqueries, it's possible that some
-		// writes will have been buffered by one of the subqueries. In such a
-		// case, we'll assume that if the query as a whole has any mutations AND
-		// it has at least one subquery, then that subquery will perform some
-		// writes that will be buffered.
-		if p.curPlan.flags.IsSet(planFlagContainsMutation) && len(p.curPlan.subqueryPlans) > 0 {
-			txnHasBufferedWrites = true
-		}
-	}
-	rec, err := checkSupportForPlanNode(ctx, plan.planNode, &p.distSQLVisitor, sd, txnHasBufferedWrites)
+	rec, err := checkSupportForPlanNode(ctx, plan.planNode, distSQLVisitor, sd)
 	if err != nil {
 		// Don't use distSQL for this request.
 		log.VEventf(ctx, 1, "query not supported for distSQL: %s", err)

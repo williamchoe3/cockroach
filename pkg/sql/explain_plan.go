@@ -58,7 +58,10 @@ func (e *explainPlanNode) startExec(params runParams) error {
 		// Note that we delay adding the annotation about the distribution until
 		// after the plan is finalized (when the physical plan is successfully
 		// created).
-		distribution, _ := params.p.getPlanDistribution(params.ctx, plan.main)
+		distribution, _ := getPlanDistribution(
+			params.ctx, params.p.Descriptors().HasUncommittedTypes(),
+			params.extendedEvalCtx.SessionData(), plan.main, &params.p.distSQLVisitor,
+		)
 
 		outerSubqueries := params.p.curPlan.subqueryPlans
 		distSQLPlanner := params.extendedEvalCtx.DistSQLPlanner

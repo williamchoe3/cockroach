@@ -872,7 +872,7 @@ func (sb *statisticsBuilder) buildScan(scan *ScanExpr, relProps *props.Relationa
 		// Add any not-null columns from the predicate constraints.
 		for i := range pred {
 			if c := pred[i].ScalarProps().Constraints; c != nil {
-				c.ExtractNotNullCols(sb.ctx, sb.evalCtx, &notNullCols)
+				notNullCols.UnionWith(c.ExtractNotNullCols(sb.ctx, sb.evalCtx))
 			}
 		}
 		sb.filterRelExpr(pred, scan, notNullCols, relProps, s, MakeTableFuncDep(sb.md, scan.Table))
@@ -1046,12 +1046,12 @@ func (sb *statisticsBuilder) constrainScan(
 	notNullCols := relProps.NotNullCols.Copy()
 	if constraint != nil {
 		// Add any not-null columns from this constraint.
-		constraint.ExtractNotNullCols(sb.ctx, sb.evalCtx, &notNullCols)
+		notNullCols.UnionWith(constraint.ExtractNotNullCols(sb.ctx, sb.evalCtx))
 	}
 	// Add any not-null columns from the predicate constraints.
 	for i := range pred {
 		if c := pred[i].ScalarProps().Constraints; c != nil {
-			c.ExtractNotNullCols(sb.ctx, sb.evalCtx, &notNullCols)
+			notNullCols.UnionWith(c.ExtractNotNullCols(sb.ctx, sb.evalCtx))
 		}
 	}
 	sb.updateNullCountsFromNotNullCols(notNullCols, s)
@@ -3710,7 +3710,7 @@ func (sb *statisticsBuilder) constrainExpr(
 	// ---------------------------------------------
 	notNullCols := relProps.NotNullCols.Copy()
 	// Add any not-null columns from this constraint set.
-	cs.ExtractNotNullCols(sb.ctx, sb.evalCtx, &notNullCols)
+	notNullCols.UnionWith(cs.ExtractNotNullCols(sb.ctx, sb.evalCtx))
 	sb.updateNullCountsFromNotNullCols(notNullCols, s)
 
 	// Calculate row count and selectivity

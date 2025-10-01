@@ -393,11 +393,11 @@ func (ex *connExecutor) execStmtInOpenState(
 	}
 
 	if len(stmt.QueryTags) > 0 {
-		tags := logtags.BuildBuffer()
+		tags := &logtags.Buffer{}
 		for _, tag := range stmt.QueryTags {
-			tags.Add("querytag-"+tag.Key, tag.Value)
+			tags = tags.Add("querytag-"+tag.Key, tag.Value)
 		}
-		ctx = logtags.AddTags(ctx, tags.Finish())
+		ctx = logtags.AddTags(ctx, tags)
 	}
 
 	var queryTimeoutTicker *time.Timer
@@ -2847,7 +2847,10 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 			}
 		}
 	}
-	distributePlan, distSQLProhibitedErr := planner.getPlanDistribution(ctx, planner.curPlan.main)
+	distributePlan, distSQLProhibitedErr := getPlanDistribution(
+		ctx, planner.Descriptors().HasUncommittedTypes(),
+		ex.sessionData(), planner.curPlan.main, &planner.distSQLVisitor,
+	)
 	if afterGetPlanDistribution != nil {
 		afterGetPlanDistribution()
 	}
@@ -4198,12 +4201,13 @@ func (ex *connExecutor) recordTransactionFinish(
 	txnStart crtime.Mono,
 	txnErr error,
 ) error {
-	recordingStart := crtime.NowMono()
+	recordingStart := timeutil.Now()
 	defer func() {
+		recordingOverhead := timeutil.Since(recordingStart)
 		ex.server.
 			ServerMetrics.
 			StatsMetrics.
-			SQLTxnStatsCollectionOverhead.RecordValue(recordingStart.Elapsed().Nanoseconds())
+			SQLTxnStatsCollectionOverhead.RecordValue(recordingOverhead.Nanoseconds())
 	}()
 
 	txnEnd := timeutil.Now()
